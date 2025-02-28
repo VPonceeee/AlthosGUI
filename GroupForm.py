@@ -5,6 +5,7 @@ class GroupForm(ctk.CTkFrame):
         super().__init__(parent)  # Parent is content_panel
         self.switch_page = switch_page
 
+
         label = ctk.CTkLabel(self, text="Group Page", font=("Arial", 20))
         label.pack(pady=20)
 

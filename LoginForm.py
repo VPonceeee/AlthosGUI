@@ -36,14 +36,19 @@ def showpass():
         password_txtb.configure(show="*")
 
 def login():
-    username = username_txtb.get()
+    email = username_txtb.get()
     password = password_txtb.get()
-    user = accounts_collection.find_one({"email": username, "password": password})
+    user = accounts_collection.find_one({"email": email, "password": password})
     if user:
         message_lbl.configure(text="Login Successful", text_color="green")
         app.withdraw()  # Hide the login form
-        subprocess.Popen(["python", "Main.py"])  # Open Main.py
-        subprocess.wait()
+
+        #Get the data on the database
+        AccID = str(user.get("_id", "Unknown"))
+        username = user.get("username", "Unknown")
+
+        process = subprocess.Popen(["python", "Main.py", AccID, username])  # Open Main.py
+        process.wait()
         app.quit()
     else:
         message_lbl.configure(text="Invalid email or password!", text_color="red")

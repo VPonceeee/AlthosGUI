@@ -1,6 +1,14 @@
 import customtkinter as ctk
 from Dashboard import Dashboard
 from GroupForm import GroupForm
+import sys
+
+
+
+# Retrieve email from command-line arguments
+AccID = sys.argv[1] if len(sys.argv) > 1 else "Unknown"
+username = sys.argv[2] if len(sys.argv) > 1 else "Guest"
+
 
 # Initialize the application
 ctk.set_appearance_mode("dark")
@@ -30,10 +38,10 @@ navbar.columnconfigure((0, 1, 2), weight=1)
 left_label = ctk.CTkLabel(navbar, text="Left", font=("Arial", 20, "bold"))
 left_label.grid(row=0, column=0, sticky="w", padx=20, pady=10)
 
-center_label = ctk.CTkLabel(navbar, text="Center", font=("Arial", 20, "bold"))
+center_label = ctk.CTkLabel(navbar, text="", font=("Arial", 20, "bold"))
 center_label.grid(row=0, column=1, sticky="n", pady=10)
 
-right_label = ctk.CTkLabel(navbar, text="Right", font=("Arial", 20, "bold"))
+right_label = ctk.CTkLabel(navbar, text=f"{AccID}", font=("Arial", 20, "bold"))
 right_label.grid(row=0, column=2, sticky="e", padx=20, pady=10)
 
 # Content Panel (Main Frame for Forms)
@@ -57,6 +65,7 @@ def switch_page(page_name):
     """Show the selected page."""
     page = pages.get(page_name)
     if page:
+        center_label.configure(text=page_name)
         page.tkraise()
 
 # Add pages inside content_panel
