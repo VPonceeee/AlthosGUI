@@ -57,7 +57,11 @@ pages = {}
 
 def add_page(page_class, page_name):
     """Create and store a page inside content_panel."""
-    page = page_class(content_panel, switch_page)
+    if page_name == "Dashboard":
+        page = page_class(content_panel, switch_page, AccID, username)  # Pass AccID and username
+    else:
+        page = page_class(content_panel, switch_page)
+    
     pages[page_name] = page
     page.grid(row=0, column=0, sticky="nsew")  # Make it fill the space
 

@@ -8,7 +8,7 @@ try:
     client = MongoClient(connection_string)
     db = client["ADB"]
     accounts_collection = db["Accounts"] 
-    print("Connected to MongoDB Atlas!")
+    print("Connected to Accounts MongoDB Atlas!")
 except Exception as e:
     print("Error connecting to MongoDB:", e)
 
