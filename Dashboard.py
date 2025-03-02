@@ -1,7 +1,7 @@
 import customtkinter as ctk
-import subprocess
 from pymongo import MongoClient
-from bson import ObjectId  # Required for handling ObjectId
+from bson import ObjectId
+import AddGroup
 
 # ============================== DATABASE CONNECTION ==============================
 try:
@@ -17,7 +17,7 @@ class Dashboard(ctk.CTkFrame):
     def __init__(self, parent, switch_page, AccID, username):
         super().__init__(parent)
         self.switch_page = switch_page
-        self.acc_id = AccID  
+        self.AccID = AccID  
         self.username = username  
 
         # Make Dashboard fill the entire content panel
@@ -31,7 +31,10 @@ class Dashboard(ctk.CTkFrame):
 
         # Default Panel Size
         self.panel_width = 270
-        self.panel_padding = 10  # Adjusted padding
+        self.panel_padding = 10
+
+        # Store groups data
+        self.groups = []
 
         # Fetch and display groups
         self.fetch_groups()
@@ -40,71 +43,83 @@ class Dashboard(ctk.CTkFrame):
         self.bind("<Configure>", self.on_resize)
 
     def fetch_groups(self):
-        """Fetch groups where CreatedBy matches self.acc_id and display them."""
+        """Fetch groups where CreatedBy matches self.AccID and store them."""
         try:
-            if ObjectId.is_valid(self.acc_id):
-                acc_id_obj = ObjectId(self.acc_id)
+            if ObjectId.is_valid(self.AccID):
+                acc_id_obj = ObjectId(self.AccID)
             else:
                 print("Invalid ObjectId format.")
                 return
 
             query = {"CreatedBy": acc_id_obj}
-            groups = list(groups_collection.find(query))
+            self.groups = list(groups_collection.find(query))  # Store fetched data
 
-            if groups:
-                print(f"Groups found for CreatedBy {self.acc_id}:")
-                self.display_groups(groups)
+            if self.groups:
+                print(f"Groups found for CreatedBy {self.AccID}:")
+                self.display_groups()
             else:
-                print(f"No groups found for CreatedBy {self.acc_id}")
+                print(f"No groups found for CreatedBy {self.AccID}")
         except Exception as e:
             print("Error fetching groups:", e)
 
-    def display_groups(self, groups):
+    def display_groups(self):
         """Dynamically create responsive panels with a button and label for each group."""
         for widget in self.scroll_frame.winfo_children():
             widget.destroy()  # Clear previous widgets
 
-        max_columns = self.calculate_columns()  # Dynamically determine columns
-        total_items = len(groups)
-        
-        # Calculate starting column index for centering
-        for i, group in enumerate(groups):
+        max_columns = self.calculate_columns()
+        if max_columns < 1:
+            return
+
+        # Create the '+' button
+        plus_panel = ctk.CTkFrame(self.scroll_frame)
+        plus_panel.grid(row=0, column=0, padx=self.panel_padding, pady=10, sticky="n")
+
+        button_width = max(200, (self.winfo_width() - 40) // max_columns - (self.panel_padding * 2))
+
+        plus_btn = ctk.CTkButton(
+            plus_panel, text="+", width=button_width, height=150, 
+            font=("Arial", 24), command=self.show_addgroup
+        )
+        plus_btn.pack(pady=(10, 5), expand=True)
+
+        plus_lbl = ctk.CTkLabel(plus_panel, text="Add Group", font=("Arial", 14))
+        plus_lbl.pack(pady=(0, 10))
+
+        # Add the group buttons
+        for i, group in enumerate(self.groups):
             group_name = group.get("GroupName", "Unnamed Group")
 
-            # Create a sub-panel for the group
             sub_panel = ctk.CTkFrame(self.scroll_frame)
-            sub_panel.grid(row=i // max_columns, column=i % max_columns, padx=self.panel_padding, pady=10, sticky="n")
+            sub_panel.grid(row=(i + 1) // max_columns, column=(i + 1) % max_columns, padx=self.panel_padding, pady=10, sticky="n")
 
-            # Group button
-            group_btn = ctk.CTkButton(sub_panel, text=group_name, width=250, height=150, command=lambda g=group_name: self.open_group(g))
+            group_btn = ctk.CTkButton(
+                sub_panel, text=group_name, width=button_width, height=150,
+                command=lambda g=group_name: self.open_group(g)
+            )
             group_btn.pack(pady=(10, 5), expand=True)
 
-            # Group label
             group_lbl = ctk.CTkLabel(sub_panel, text=group_name, font=("Arial", 14))
             group_lbl.pack(pady=(0, 10))
 
-        # Center align by setting column weights
+        # Center align columns
         for col in range(max_columns):
             self.scroll_frame.grid_columnconfigure(col, weight=1)
 
         self.scroll_frame.update_idletasks()
 
     def on_resize(self, event=None):
-        """Recalculate column count and refresh UI when resizing."""
-        self.display_groups(list(groups_collection.find({"CreatedBy": ObjectId(self.acc_id)})))
+        """Refresh UI layout dynamically on window resize without refetching."""
+        self.display_groups()
 
     def calculate_columns(self):
-        """Calculate the number of columns based on the available width."""
+        """Calculate number of columns dynamically."""
         available_width = self.winfo_width()
-        if available_width <= 1:  # Prevent division error when minimized
-            return 3  # Default fallback
-
-        max_columns = max(1, (available_width - 40) // (self.panel_width + self.panel_padding * 2))
-        return max_columns
-
-    def open_group(self, group_name):
-        """Placeholder function when clicking a group button."""
-        print(f"Opening group: {group_name}")
+        if available_width <= 1:
+            return 3
+        return max(1, (available_width - 40) // (self.panel_width + self.panel_padding * 2))
 
     def show_addgroup(self):
-        subprocess.Popen(["python", "AddGroup.py"])  # Opens AddGroup.py as a new process
+        """Open AddGroup and refresh dashboard after closing."""
+        self.add_group_window = AddGroup.AddGroup(self, self.AccID, self.username)
+        self.add_group_window.focus()
