@@ -2,6 +2,7 @@ import customtkinter as ctk
 from pymongo import MongoClient
 from bson import ObjectId
 import AddGroup
+import ViewGroup
 
 # ============================== DATABASE CONNECTION ==============================
 try:
@@ -95,7 +96,7 @@ class Dashboard(ctk.CTkFrame):
 
             group_btn = ctk.CTkButton(
                 sub_panel, text=group_name, width=button_width, height=150,
-                command=lambda g=group_name: self.open_group(g)
+                command=lambda g=group: self.open_group(g)  # Pass full group data
             )
             group_btn.pack(pady=(10, 5), expand=True)
 
@@ -123,3 +124,12 @@ class Dashboard(ctk.CTkFrame):
         """Open AddGroup and refresh dashboard after closing."""
         self.add_group_window = AddGroup.AddGroup(self, self.AccID, self.username)
         self.add_group_window.focus()
+
+    def open_group(self, group):
+        """Switch to ViewGroup with the selected group's ID and name."""
+        group_id = str(group.get("_id", "Unknown"))  # Get Group ID
+        group_name = group.get("GroupName", "Unnamed Group")
+        
+        # Pass both GroupID and GroupName
+        self.switch_page("ViewGroup", {"GroupID": group_id, "GroupName": group_name})
+
