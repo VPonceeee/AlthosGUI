@@ -1,6 +1,7 @@
 import customtkinter as ctk
 from pymongo import MongoClient
-from bson import ObjectId  # Import ObjectId for querying
+from bson import ObjectId
+import AddMember
 
 # ============================== DATABASE CONNECTION ==============================
 try:
@@ -16,11 +17,12 @@ class ViewGroup(ctk.CTkFrame):
     def __init__(self, parent, switch_page, group_id="Unknown", group_name="Group Pages"):
         super().__init__(parent)
         self.switch_page = switch_page
-        self.group_id = group_id  # Store GroupID
-        self.group_name = group_name  # Store GroupName
-        self.devices = []  # Placeholder for devices list
-        self.panel_padding = 10  # Adjust spacing
-        self.panel_width = 200  # Default panel width
+        self.group_id = group_id 
+        self.group_name = group_name  
+
+        self.devices = []  
+        self.panel_padding = 10  
+        self.panel_width = 200  
 
         # Top Frame
         self.top_frame = ctk.CTkFrame(self, height=50)
@@ -61,7 +63,7 @@ class ViewGroup(ctk.CTkFrame):
 
         plus_btn = ctk.CTkButton(
             plus_panel, text="+", width=button_width, height=150, 
-            font=("Arial", 24)
+            font=("Arial", 24), command=self.show_addmem
         )
         plus_btn.pack(pady=(10, 5), expand=True)
 
@@ -125,3 +127,8 @@ class ViewGroup(ctk.CTkFrame):
     def open_device(self, device):
         """Handle device button click event."""
         print(f"Opening device: {device}")
+
+    def show_addmem(self):
+        """Open AddGroup and refresh dashboard after closing."""
+        self.ShowAddMem = AddMember.AddMember(self,self.group_id, self.group_name)
+        self.ShowAddMem.focus()

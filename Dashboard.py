@@ -18,7 +18,7 @@ class Dashboard(ctk.CTkFrame):
     def __init__(self, parent, switch_page, AccID, username):
         super().__init__(parent)
         self.switch_page = switch_page
-        self.AccID = AccID  
+        self.accid = AccID  
         self.username = username  
 
         # Make Dashboard fill the entire content panel
@@ -46,8 +46,8 @@ class Dashboard(ctk.CTkFrame):
     def fetch_groups(self):
         """Fetch groups where CreatedBy matches self.AccID and store them."""
         try:
-            if ObjectId.is_valid(self.AccID):
-                acc_id_obj = ObjectId(self.AccID)
+            if ObjectId.is_valid(self.accid):
+                acc_id_obj = ObjectId(self.accid)
             else:
                 print("Invalid ObjectId format.")
                 return
@@ -56,10 +56,10 @@ class Dashboard(ctk.CTkFrame):
             self.groups = list(groups_collection.find(query))  # Store fetched data
 
             if self.groups:
-                print(f"Groups found for CreatedBy {self.AccID}:")
+                print(f"Groups found for CreatedBy {self.accid}:")
                 self.display_groups()
             else:
-                print(f"No groups found for CreatedBy {self.AccID}")
+                print(f"No groups found for CreatedBy {self.accid}")
         except Exception as e:
             print("Error fetching groups:", e)
 
