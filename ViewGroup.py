@@ -2,6 +2,7 @@ import customtkinter as ctk
 from pymongo import MongoClient
 from bson import ObjectId
 import AddMember
+import ViewMember
 
 # ============================== DATABASE CONNECTION ==============================
 try:
@@ -79,7 +80,7 @@ class ViewGroup(ctk.CTkFrame):
 
             device_btn = ctk.CTkButton(
                 sub_panel, text=device_name, width=button_width, height=150,
-                command=lambda d=device: self.open_device(d)  # Pass full device data
+                command=lambda d=device: self.open_member(d)
             )
             device_btn.pack(pady=(10, 5), expand=True)
 
@@ -132,3 +133,15 @@ class ViewGroup(ctk.CTkFrame):
         """Open AddGroup and refresh dashboard after closing."""
         self.ShowAddMem = AddMember.AddMember(self,self.group_id, self.group_name)
         self.ShowAddMem.focus()
+
+    def open_member(self, device):
+        """Switch to ViewMember page with the selected device's details."""
+        print("Device Data:", device)  # Debugging: Check if 'IP' exists
+
+        device_ip = device.get("IP", "Unknown IP")  # Extract IP address safely
+        print(f"Opening device with IP: {device_ip}")  # Debugging log
+
+        self.openmem = ViewMember.ViewMember(self, device, device_ip)  # Pass IP to ViewMember
+        self.openmem.focus()
+
+
