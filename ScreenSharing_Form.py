@@ -4,13 +4,13 @@ import threading
 import time
 from PIL import ImageGrab, Image, ImageDraw
 import io
-import pyautogui  # To get cursor position
+import pyautogui
 
 class ScreenSharing_Form(tk.Frame): 
     def __init__(self, parent):  
         super().__init__(parent)
         self.is_sharing = False
-        self.thread = None
+        self.threads = []
 
         self.TopSpacer_pnl = tk.Frame(self, height=10)  
         self.TopSpacer_pnl.pack(side="top", fill="both", expand=False)
@@ -38,106 +38,78 @@ class ScreenSharing_Form(tk.Frame):
 
         self.StatusMsg_txtb.config(yscrollcommand=self.scrollbar.set)
 
-       
-
     def toggle_buttons(self):
-        if self.Start_btn["state"] == "normal":
-            self.Start_btn.config(state="disabled")
-            self.Stop_btn.config(state="normal")
-        else:
-            self.Start_btn.config(state="normal")
-            self.Stop_btn.config(state="disabled")
+        self.Start_btn.config(state="disabled" if self.is_sharing else "normal")
+        self.Stop_btn.config(state="normal" if self.is_sharing else "disabled")
 
     def start_sharing(self):
         if not self.is_sharing:
             self.is_sharing = True
-            self.thread = threading.Thread(target=self.run_server)
-            self.thread.start()
+            self.threads = []
+            
+            for port in [5000, 5001]:
+                thread = threading.Thread(target=self.run_server, args=(port,))
+                thread.start()
+                self.threads.append(thread)
+
             self.toggle_buttons()
             self.Status_lbl.config(text="Online", fg="green")
-            self.StatusMsg_txtb.insert("end", "Screen sharing started...\n")
+            self.StatusMsg_txtb.insert("end", "Screen sharing started on ports 5000 and 5001...\n")
 
     def stop_sharing(self):
         self.is_sharing = False
         self.StatusMsg_txtb.insert("end", "Stopping screen sharing...\n")
-
-        # Close the socket connection if it exists and is open
-        if hasattr(self, 'conn') and self.conn:
-            try:
-                self.conn.shutdown(socket.SHUT_RDWR)  # Gracefully shutdown the socket connection
-                self.conn.close()  # Close the socket
-            except socket.error as e:
-                print(f"Error closing connection: {e}")
-
-        # Close the server socket if it exists and is open
-        if hasattr(self, 'server_socket') and self.server_socket:
-            try:
-                self.server_socket.close()  # Close the server socket
-            except socket.error as e:
-                print(f"Error closing server socket: {e}")
-
-        if self.thread and self.thread.is_alive():
-            self.thread.join(timeout=2)
+        
+        for thread in self.threads:
+            thread.join(timeout=2)
 
         self.StatusMsg_txtb.insert("end", "Screen sharing has been stopped.\n")
         self.toggle_buttons()
 
-
-
-    def run_server(self):
+    def run_server(self, port):
         try:
-            self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            self.server_socket.bind(("0.0.0.0", 5000))
-            self.server_socket.listen(5)
-            self.StatusMsg_txtb.insert("end", "Server is listening for connections...\n")
+            server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            server_socket.bind(("0.0.0.0", port))
+            server_socket.listen(5)
+            self.StatusMsg_txtb.insert("end", f"Server listening on port {port}...\n")
 
             while self.is_sharing:
                 try:
-                    self.conn, self.addr = self.server_socket.accept()
-                    print(f"Connected to {self.addr}")
-                    self.share_screen()
+                    conn, addr = server_socket.accept()
+                    print(f"Connected to {addr} on port {port}")
+                    self.share_screen(conn)
                 except socket.error as e:
-                    print(f"Socket error: {e}")
+                    print(f"Socket error on port {port}: {e}")
                 finally:
-                    if self.conn:
-                        self.conn.close()
-                    self.conn = None
+                    if conn:
+                        conn.close()
         except Exception as e:
-            print(f"Error in server: {e}")
+            print(f"Error in server on port {port}: {e}")
         finally:
-            if self.server_socket:
-                self.server_socket.close()
+            server_socket.close()
 
-    def share_screen(self):
+    def share_screen(self, conn):
         try:
-            while self.is_sharing and self.conn:
+            while self.is_sharing and conn:
                 screenshot = ImageGrab.grab()
-
-                # Get the cursor position
                 cursor_x, cursor_y = pyautogui.position()
 
-                # Get the cursor image (a small circle)
                 cursor_image = Image.new("RGBA", (20, 20), (0, 0, 0, 0))
                 draw = ImageDraw.Draw(cursor_image)
-                draw.ellipse([(0, 0), (20, 20)], fill=(255, 0, 0, 255))  # Red cursor
+                draw.ellipse([(0, 0), (20, 20)], fill=(255, 0, 0, 255))
 
-                # Paste the cursor image onto the screenshot at the current cursor position
                 screenshot.paste(cursor_image, (cursor_x - 10, cursor_y - 10), cursor_image)
 
-                # Convert to JPEG and send over the socket
                 buffer = io.BytesIO()
                 screenshot.save(buffer, format="JPEG")
                 data = buffer.getvalue()
                 buffer.close()
 
-                # Send the data to the client
-                self.conn.sendall(len(data).to_bytes(4, 'big') + data)
+                conn.sendall(len(data).to_bytes(4, 'big') + data)
                 time.sleep(1)
         except (socket.error, BrokenPipeError) as e:
             print(f"Error during screen sharing: {e}")
         finally:
-            if self.conn:
-                self.conn.close()
-            self.conn = None
-
+            if conn:
+                conn.close()
