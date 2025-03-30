@@ -11,12 +11,16 @@ class ViewMember(ctk.CTkToplevel):
     def __init__(self, parent, device, device_ip):
         super().__init__(parent)
 
+        device_name = device.get("DeviceName", "Unnamed Device")
+        self.ip = device.get("DeviceIP", "Unknown Device IP")
+        
         self.title("View Device")
         self.geometry("1300x900")
         self.resizable(False, False)
         self.attributes("-topmost", True)
         self.attributes("-toolwindow", True)
         self.grab_set()
+        self.title(f"{self.ip}")
 
         screen_width = self.winfo_screenwidth()
         screen_height = self.winfo_screenheight()
@@ -24,13 +28,8 @@ class ViewMember(ctk.CTkToplevel):
         y_position = (screen_height // 2) - (900 // 2)
         self.geometry(f"1300x900+{x_position}+{y_position}")
 
-        device_name = device.get("DeviceName", "Unnamed Device")
-        self.ip = device.get("DeviceIP", "Unknown Device IP")
-
-        # Display Device Name and IP
-        message_lbl = ctk.CTkLabel(self, text=f"Device: {device_name}\nIP: {self.ip}", font=("Arial", 18))
-        message_lbl.pack(pady=15)
-
+        self.fullscreen = False  # Track fullscreen state
+        
         # **Main Container Frame**
         container_frame = ctk.CTkFrame(self)
         container_frame.pack(side="left", anchor="nw", padx=20, pady=20)
@@ -41,7 +40,7 @@ class ViewMember(ctk.CTkToplevel):
         self.screenframe.pack(side="top", pady=10)
 
         # **Label for Displaying Screen (Fixed Size)**
-        self.screen_label = tk.Label(self.screenframe, text="No Screen Available", font=("Arial", 14, "bold"), bg="lightgray", width=700, height=400)
+        self.screen_label = ctk.CTkLabel(self.screenframe, text=" ", font=("Arial", 14, "bold"), width=700, height=400, fg_color="lightgray")
         self.screen_label.pack(fill="both", expand=True)
 
         # Start receiving screen data in a separate thread
@@ -54,7 +53,6 @@ class ViewMember(ctk.CTkToplevel):
                 try:
                     client_socket.connect((self.ip, 5000))
                     print(f"Connected to {self.ip}")
-                    self.update_screen_status("Online")
 
                     while True:
                         try:
@@ -79,21 +77,15 @@ class ViewMember(ctk.CTkToplevel):
                                 photo = ImageTk.PhotoImage(image)
 
                                 # Update screen_label with the new image
-                                self.screen_label.config(image=photo)
+                                self.screen_label.configure(image=photo)
                                 self.screen_label.image = photo
                         except Exception as e:
                             print(f"Error receiving screen: {e}")
                             break
                 except socket.timeout:
                     print(f"Connection to {self.ip} timed out.")
-                    self.update_screen_status("Offline")
         except Exception as e:
             print(f"Error connecting to server: {e}")
-            self.update_screen_status("Offline")
 
-    def update_screen_status(self, status):
-        """ Update the screen status label based on connection status """
-        if status == "Online":
-            self.screen_label.config(text="Receiving Screen", font=("Arial", 14, "bold"), bg="lightgreen", fg="black")
-        elif status == "Offline":
-            self.screen_label.config(text="No Screen Available", font=("Arial", 14, "bold"), bg="lightgray", fg="black")
+
+   
