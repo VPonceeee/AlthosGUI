@@ -11,6 +11,7 @@ class ScreenSharing_Form(tk.Frame):
         super().__init__(parent)
         self.is_sharing = False
         self.threads = []
+        self.server_sockets = []  # Keep track of server sockets
 
         self.TopSpacer_pnl = tk.Frame(self, height=10)  
         self.TopSpacer_pnl.pack(side="top", fill="both", expand=False)
@@ -46,25 +47,35 @@ class ScreenSharing_Form(tk.Frame):
         if not self.is_sharing:
             self.is_sharing = True
             self.threads = []
+            self.server_sockets = []  # Reset server sockets list
             
             for port in [5000, 5001]:
                 thread = threading.Thread(target=self.run_server, args=(port,))
+                thread.daemon = True  # Ensure threads close when the main program exits
                 thread.start()
                 self.threads.append(thread)
 
             self.toggle_buttons()
             self.Status_lbl.config(text="Online", fg="green")
             self.StatusMsg_txtb.insert("end", "Screen sharing started on ports 5000 and 5001...\n")
+            self.StatusMsg_txtb.see("end")
 
     def stop_sharing(self):
-        self.is_sharing = False
-        self.StatusMsg_txtb.insert("end", "Stopping screen sharing...\n")
-        
-        for thread in self.threads:
-            thread.join(timeout=2)
+        try:
+            if self.is_sharing:
+                self.is_sharing = False  # Signal threads to stop
+                for sock in self.server_sockets:
+                    sock.close()  # Close all server sockets
+                self.server_sockets.clear()  # Clear the list of sockets
 
-        self.StatusMsg_txtb.insert("end", "Screen sharing has been stopped.\n")
-        self.toggle_buttons()
+                self.toggle_buttons()
+                self.Status_lbl.config(text="Offline", fg="red")
+                if self.StatusMsg_txtb.winfo_exists():
+                    self.StatusMsg_txtb.insert("end", "Screen sharing stopped.\n")
+                    self.StatusMsg_txtb.see("end")
+                print("Screen sharing stopped successfully.")
+        except Exception as e:
+            print(f"Error in stop_sharing: {e}")
 
     def run_server(self, port):
         try:
@@ -72,13 +83,20 @@ class ScreenSharing_Form(tk.Frame):
             server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             server_socket.bind(("0.0.0.0", port))
             server_socket.listen(5)
-            self.StatusMsg_txtb.insert("end", f"Server listening on port {port}...\n")
+            self.server_sockets.append(server_socket)  # Keep track of the server socket
+
+            if self.StatusMsg_txtb.winfo_exists():
+                self.StatusMsg_txtb.insert("end", f"Server listening on port {port}...\n")
+                self.StatusMsg_txtb.see("end")
 
             while self.is_sharing:
                 try:
+                    server_socket.settimeout(1.0)  # Set a timeout to allow graceful shutdown
                     conn, addr = server_socket.accept()
                     print(f"Connected to {addr} on port {port}")
                     self.share_screen(conn)
+                except socket.timeout:
+                    continue  # Timeout reached, check if `is_sharing` is still True
                 except socket.error as e:
                     print(f"Socket error on port {port}: {e}")
                 finally:
