@@ -7,8 +7,31 @@ import time
 from PIL import ImageGrab, Image, ImageDraw
 import io
 import pyautogui
+import pystray
+from pynput import keyboard
 
 #======================Function Section==============================
+
+def runintobckgrnd():
+    global tray_icon
+    app.withdraw()  # Hide the main window
+    image = Image.new('RGB', (64, 64), (255, 255, 255))
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((10, 10, 54, 54), fill=(0, 0, 255))
+    
+    def on_restore(icon, item):
+        icon.stop()
+        app.deiconify()
+    
+    def on_exit(icon, item):
+        icon.stop()
+        appexit()
+    
+    tray_icon = pystray.Icon("App", image, menu=pystray.Menu(
+        pystray.MenuItem("Open", on_restore),
+        pystray.MenuItem("Exit", on_exit)
+    ))
+    tray_icon.run()
 
 def show_deviceinfo():
     for widget in right_panel.winfo_children():
@@ -46,6 +69,7 @@ def show_screen_sharing():
     statusScreen_txtb = ctk.CTkTextbox(screen_sharing_frame, width=500, height=400)
     statusScreen_txtb.pack(fill="both", expand=True, padx=10, pady=5)
 
+    global is_sharing, threads
     is_sharing = False
     threads = []
 
@@ -53,13 +77,14 @@ def show_screen_sharing():
         statusScreen_txtb.after(0, lambda: statusScreen_txtb.insert("end", message + "\n"))
 
     def start_sharing():
-        nonlocal is_sharing, threads
+        global is_sharing, threads
         if not is_sharing:
             is_sharing = True
             threads = []
             
             for port in [5000, 5001]:
                 thread = threading.Thread(target=run_server, args=(port,))
+                thread.daemon = True
                 thread.start()
                 threads.append(thread)
 
@@ -68,10 +93,18 @@ def show_screen_sharing():
             update_textbox("Screen sharing started on ports 5000 and 5001...")
 
     def stop_sharing():
-        nonlocal is_sharing
+        global is_sharing
         is_sharing = False
         update_textbox("Stopping screen sharing...")
         
+        # Force close socket connections
+        try:
+            temp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            temp_socket.connect(("127.0.0.1", 5000))
+            temp_socket.close()
+        except:
+            pass
+
         for thread in threads:
             thread.join(timeout=2)
 
@@ -86,37 +119,29 @@ def show_screen_sharing():
             server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             server_socket.bind(("0.0.0.0", port))
             server_socket.listen(5)
-            update_textbox(f"Server listening on port {port}...")
+            server_socket.settimeout(1)  # Prevents indefinite blocking
 
-            server_socket.settimeout(1)  # Avoid indefinite blocking
+            update_textbox(f"Server listening on port {port}...")
             while is_sharing:
                 try:
                     conn, addr = server_socket.accept()
                     if not is_sharing:
-                        break  # Exit if sharing was stopped
-                    print(f"Connected to {addr} on port {port}")
+                        break
                     share_screen(conn)
                 except socket.timeout:
-                    continue  # Check again if is_sharing is still True
+                    continue
                 except socket.error as e:
-                    print(f"Socket error on port {port}: {e}")
+                    update_textbox(f"Socket error on port {port}: {e}")
+                    break
             server_socket.close()
         except Exception as e:
-            print(f"Error in server on port {port}: {e}")
+            update_textbox(f"Error in server on port {port}: {e}")
 
 
     def share_screen(conn):
         try:
-            while is_sharing and conn:
+            while is_sharing:
                 screenshot = ImageGrab.grab()
-                cursor_x, cursor_y = pyautogui.position()
-
-                cursor_image = Image.new("RGBA", (20, 20), (0, 0, 0, 0))
-                draw = ImageDraw.Draw(cursor_image)
-                draw.ellipse([(0, 0), (20, 20)], fill=(255, 0, 0, 255))
-
-                screenshot.paste(cursor_image, (cursor_x - 10, cursor_y - 10), cursor_image)
-
                 buffer = io.BytesIO()
                 screenshot.save(buffer, format="JPEG")
                 data = buffer.getvalue()
@@ -124,11 +149,10 @@ def show_screen_sharing():
 
                 conn.sendall(len(data).to_bytes(4, 'big') + data)
                 time.sleep(1)
-        except (socket.error, BrokenPipeError) as e:
-            print(f"Error during screen sharing: {e}")
+        except:
+            update_textbox("Client disconnected.")
         finally:
-            if conn:
-                conn.close()
+            conn.close()
 
     def screentoggle_btn(): #buttons function on and off
         if startss_btn.cget("state") == "disabled":
@@ -178,6 +202,170 @@ def show_camera_sharing():
     statuscs_txtb = ctk.CTkTextbox(camera_sharing_frame, width=500, height=400)
     statuscs_txtb.pack(fill="both", expand=True, padx=10, pady=5)
 
+def show_kb_sharing():
+    for widget in right_panel.winfo_children():
+        widget.destroy()
+    
+    kbsharing_frame = ctk.CTkFrame(right_panel, fg_color="transparent")
+    kbsharing_frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+    kbbtn_frame = ctk.CTkFrame(kbsharing_frame, fg_color="transparent")
+    kbbtn_frame.pack(fill="x", padx=5, pady=5)
+
+    kbstatus_lbl = ctk.CTkLabel(kbbtn_frame, text="Status: Offline", font=("Arial", 16, "bold"))
+    kbstatus_lbl.pack(side="right", padx=10, pady=5)
+
+    statuskbs_txtb = ctk.CTkTextbox(kbsharing_frame, width=500, height=400)
+    statuskbs_txtb.pack(fill="both", expand=True, padx=10, pady=5)
+
+    # Constants
+    TIME_WINDOW = 5
+    ERRATIC_THRESHOLD = 20
+    NORMAL_THRESHOLD = 1
+
+    # State Variables
+    keystroke_times = []
+    keystroke_intervals = []
+    is_sharing_kb = False
+    server_socket = [None]  # Use list to allow access inside nested functions
+    listener = [None]
+
+    def update_textbox(message):
+        statuskbs_txtb.after(0, lambda: statuskbs_txtb.insert("end", message + "\n"))
+
+    def on_key_press(key):
+        current_time = time.time()
+        keystroke_times.append(current_time)
+
+        if len(keystroke_times) > 1:
+            interval = keystroke_times[-1] - keystroke_times[-2]
+            keystroke_intervals.append(interval)
+
+        while keystroke_times and keystroke_times[0] < current_time - TIME_WINDOW:
+            keystroke_times.pop(0)
+            if keystroke_intervals:
+                keystroke_intervals.pop(0)
+
+    def get_activity_level():
+        current_time = time.time()
+        while keystroke_times and keystroke_times[0] < current_time - TIME_WINDOW:
+            keystroke_times.pop(0)
+            if keystroke_intervals:
+                keystroke_intervals.pop(0)
+
+        key_count = len(keystroke_times)
+        if key_count == 0:
+            return "Idle"
+        elif key_count >= ERRATIC_THRESHOLD:
+            return "Erratic"
+        elif key_count >= NORMAL_THRESHOLD:
+            return "Normal"
+        return "Idle"
+
+    def accept_admin_connection():
+        while is_sharing_kb:
+            try:
+                conn, addr = server_socket[0].accept()
+                update_textbox(f"Admin connected from {addr}")
+                while is_sharing_kb:
+                    activity_level = get_activity_level()
+                    conn.sendall(activity_level.encode("utf-8"))
+                    time.sleep(1)
+                conn.close()
+            except OSError as e:
+                if is_sharing_kb:
+                    update_textbox(f"Connection error: {e}")
+            except Exception as e:
+                update_textbox(f"Unexpected error: {e}")
+
+    def start_sharing():
+        nonlocal is_sharing_kb
+        if not is_sharing_kb:
+            is_sharing_kb = True
+            kbstatus_lbl.configure(text="Status: Sharing", text_color="green")
+            startkbs_btn.configure(state="disabled")
+            stopkbs_btn.configure(state="normal")
+
+            listener[0] = keyboard.Listener(on_press=on_key_press)
+            listener[0].start()
+
+            try:
+                server_socket[0] = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                server_socket[0].setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                server_socket[0].bind(("0.0.0.0", 5004))
+                server_socket[0].listen(1)
+
+                threading.Thread(target=accept_admin_connection, daemon=True).start()
+                update_textbox("Keyboard sharing started on port 5004...")
+            except Exception as e:
+                update_textbox(f"Failed to start server: {e}")
+                stop_sharing()  # Roll back if error occurs
+
+    def stop_sharing():
+        nonlocal is_sharing_kb
+        is_sharing_kb = False
+        kbstatus_lbl.configure(text="Status: Offline", text_color="red")
+        startkbs_btn.configure(state="normal")
+        stopkbs_btn.configure(state="disabled")
+
+        if listener[0]:
+            listener[0].stop()
+            listener[0] = None
+
+        if server_socket[0]:
+            try:
+                server_socket[0].shutdown(socket.SHUT_RDWR)
+            except:
+                pass  # Socket might already be closed or not connected
+            try:
+                server_socket[0].close()
+            except:
+                pass
+            server_socket[0] = None
+
+        update_textbox("Keyboard sharing has been stopped.")
+
+    # Buttons
+    startkbs_btn = ctk.CTkButton(kbbtn_frame, text="Start", width=100, height=30, fg_color="darkgreen", command=start_sharing)
+    startkbs_btn.pack(side="left", padx=5)
+    startkbs_btn.bind("<Enter>", lambda e: startkbs_btn.configure(fg_color="green"))
+    startkbs_btn.bind("<Leave>", lambda e: startkbs_btn.configure(fg_color="darkgreen"))
+
+    stopkbs_btn = ctk.CTkButton(kbbtn_frame, text="Stop", width=100, height=30, fg_color="darkred", command=stop_sharing, state="disabled")
+    stopkbs_btn.pack(side="left", padx=5)
+    stopkbs_btn.bind("<Enter>", lambda e: stopkbs_btn.configure(fg_color="red"))
+    stopkbs_btn.bind("<Leave>", lambda e: stopkbs_btn.configure(fg_color="darkred"))
+
+    # Start sharing automatically
+    start_sharing()
+
+
+
+
+def appexit():
+
+    #ScreenSharing
+    global is_sharing, threads
+    is_sharing = False
+    threads = []
+
+    def stop_sharing():
+        global is_sharing
+        is_sharing = False
+
+        try:
+            temp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            temp_socket.connect(("127.0.0.1", 5000))
+            temp_socket.close()
+        except:
+            pass
+
+        for thread in threads:
+            thread.join(timeout=2)
+
+    stop_sharing()
+    app.destroy()
+
 #======================Form Design Section==============================
 
 app = ctk.CTk()
@@ -206,6 +394,7 @@ right_panel.pack(side="right", fill="both", expand=True)
 #Form Load
 
 app.after(100, show_screen_sharing)
+app.after(105, show_kb_sharing)
 app.after(110, show_deviceinfo)
 
 # Buttons in left panel
@@ -218,8 +407,13 @@ screensharing_btn.pack(fill="x", padx=10, pady=5)
 camerasharing_btn = ctk.CTkButton(left_panel, text="Camera Service", width=240, height=40, command=show_camera_sharing)
 camerasharing_btn.pack(fill="x", padx=10, pady=5)
 
+kbsharing_btn = ctk.CTkButton(left_panel, text="keyboard Service", width=240, height=40, command=show_kb_sharing)
+kbsharing_btn.pack(fill="x", padx=10, pady=5)
+
 stopservice_btn = ctk.CTkButton(left_panel, text="Stop Service", width=240, height=40)
 stopservice_btn.pack(fill="x", padx=10, pady=5)
+
+app.protocol("WM_DELETE_WINDOW", runintobckgrnd)
 
 # Run the application
 app.mainloop()
