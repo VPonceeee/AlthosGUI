@@ -43,6 +43,13 @@ class ViewGroup(ctk.CTkFrame):
         )
         self.back_button.pack(side="left", padx=10, pady=10)
 
+        # Refresh Button
+        self.refresh_button = ctk.CTkButton(
+            self.top_frame, text="⟳ Refresh", width=80,
+            command=self.refresh_devices
+        )
+        self.refresh_button.pack(side="right", padx=(0, 10), pady=10)
+
         # Page Label
         self.label = ctk.CTkLabel(self.top_frame, text=self.group_name, font=("Arial", 20, "bold"))
         self.label.pack(side="left", padx=10, pady=10)
@@ -174,21 +181,39 @@ class ViewGroup(ctk.CTkFrame):
                                 frame_height = screen_label.winfo_height()
 
                                 image = image.resize((frame_width, frame_height), Image.LANCZOS)
-
                                 photo = ImageTk.PhotoImage(image)
 
-                                # Update the correct screen_label
-                                screen_label.configure(image=photo)
-                                screen_label.image = photo  # Keep a reference to prevent garbage collection
+                                screen_label.configure(image=photo, text="")
+                                screen_label.image = photo
 
                         except Exception as e:
                             print(f"Error receiving screen from {device_ip}: {e}")
                             break
                 except socket.timeout:
                     print(f"Connection to {device_ip} timed out.")
+                    self.set_offline_state(screen_label)
+                except ConnectionRefusedError:
+                    print(f"Connection to {device_ip} was refused.")
+                    self.set_offline_state(screen_label)
 
         except Exception as e:
             print(f"Error connecting to {device_ip}: {e}")
+            self.set_offline_state(screen_label)
+
+    def set_offline_state(self, screen_label):
+        """Set visual state of a device to offline."""
+        screen_label.configure(text="OFFLINE", image=None, fg_color="gray", font=("Arial", 16, "bold"))
+
+    def refresh_devices(self):
+        """Refresh the devices list from MongoDB and update the UI."""
+        try:
+            query_filter = {"GroupID": ObjectId(self.group_id)} if ObjectId.is_valid(self.group_id) else {"GroupID": self.group_id}
+            self.devices = list(devices_collection.find(query_filter))
+            print("Devices refreshed:", self.devices)
+        except Exception as e:
+            print("Error refreshing devices:", e)
+
+        self.display_devices()
 
     def show_addmem(self):
         """Open AddGroup and refresh dashboard after closing."""
