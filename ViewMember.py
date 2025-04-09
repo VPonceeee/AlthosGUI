@@ -6,6 +6,9 @@ import socket
 import threading
 import io
 import tkinter as tk
+import asyncio
+import cv2
+import numpy as np
 
 class ViewMember(ctk.CTkToplevel):
     def __init__(self, parent, device, device_ip):
@@ -81,6 +84,9 @@ class ViewMember(ctk.CTkToplevel):
         # Start receiving screen data in a separate thread
         threading.Thread(target=self.receive_screen, daemon=True).start()
         threading.Thread(target=self.receive_keyboard_status, daemon=True).start()
+
+        # Start the asyncio server for camera feeds in a separate thread
+        threading.Thread(target=self.start_asyncio_server, daemon=True).start()
 
     def receive_screen(self):
         try:
@@ -169,3 +175,76 @@ class ViewMember(ctk.CTkToplevel):
         except (ConnectionRefusedError, socket.timeout) as e:
             print(f"[Keyboard] Cannot connect to {self.ip}: {e}")
             self.kbstatus_lbl.configure(text="OFFLINE", fg_color="black")
+
+    def start_asyncio_server(self):
+        """Start the asyncio server for handling camera feeds."""
+        asyncio.run(self.run_camera_server())
+
+    async def run_camera_server(self):
+        """Main server function to handle multiple clients."""
+        server = await asyncio.start_server(self.handle_client, "0.0.0.0", 5003)
+        print("Camera server is running and waiting for connections...")
+
+        try:
+            async with server:
+                await server.serve_forever()
+        except asyncio.CancelledError:
+            print("Camera server is shutting down...")
+        finally:
+            cv2.destroyAllWindows()  # Ensure all OpenCV windows are closed
+
+    async def handle_client(self, reader, writer):
+        """Handle a single client connection."""
+        addr = writer.get_extra_info('peername')
+        print(f"Connected to {addr}")
+
+        try:
+            while True:
+                # Read the size of the incoming frame (4 bytes)
+                header = await asyncio.wait_for(reader.readexactly(4), timeout=10)  # Timeout after 10 seconds
+                if not header:
+                    print(f"Connection closed by {addr}.")
+                    break
+
+                frame_size = int.from_bytes(header, "big")
+
+                # Read the frame data
+                data = bytearray()
+                while len(data) < frame_size:
+                    chunk = await asyncio.wait_for(reader.read(frame_size - len(data)), timeout=10)  # Timeout after 10 seconds
+                    if not chunk:
+                        print(f"Connection closed while receiving data from {addr}.")
+                        break
+                    data.extend(chunk)
+
+                if len(data) < frame_size:
+                    print(f"Incomplete frame received from {addr}. Closing connection.")
+                    break
+
+                # Decode the frame
+                np_data = np.frombuffer(data, np.uint8)
+                frame = cv2.imdecode(np_data, cv2.IMREAD_COLOR)
+
+                if frame is None:
+                    continue  # Skip processing if decoding fails
+
+                # Convert the frame to an image compatible with Tkinter
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                img = Image.fromarray(frame)
+                img = img.resize((700, 400), Image.LANCZOS)  # Resize to fit the frame
+                photo = ImageTk.PhotoImage(img)
+
+                # Update the camera_label with the new image
+                self.camera_label.configure(image=photo)
+                self.camera_label.image = photo
+
+        except asyncio.TimeoutError:
+            print(f"Connection timed out for {addr}.")
+        except asyncio.IncompleteReadError:
+            print(f"Client {addr} disconnected unexpectedly.")
+        except Exception as e:
+            print(f"Error with client {addr}: {e}")
+        finally:
+            writer.close()
+            await writer.wait_closed()
+            print(f"Disconnected from {addr}")
