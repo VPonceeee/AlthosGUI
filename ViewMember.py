@@ -55,7 +55,7 @@ class ViewMember(ctk.CTkToplevel):
         self.kbstatus_lbl.pack(side="left", padx=10)
 
         # Mouse Status
-        self.mousestatus_lbl = ctk.CTkLabel(km_frame, text="MOUSE STATUS", font=("Arial", 14, "bold"), width=680, height=30, fg_color="green", corner_radius=10)
+        self.mousestatus_lbl = ctk.CTkLabel(km_frame, text=" ", font=("Arial", 14, "bold"), width=680, height=30, fg_color="green", corner_radius=10)
         self.mousestatus_lbl.pack(side="left", padx=10)
 
         #Screen & Camera (SC) frame
@@ -81,6 +81,8 @@ class ViewMember(ctk.CTkToplevel):
         # Start receiving screen data in a separate thread
         threading.Thread(target=self.receive_screen, daemon=True).start()
         threading.Thread(target=self.receive_keyboard_status, daemon=True).start()
+        threading.Thread(target=self.receive_mouse_status, daemon=True).start()
+
 
     def receive_screen(self):
         try:
@@ -139,7 +141,7 @@ class ViewMember(ctk.CTkToplevel):
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
                 client_socket.settimeout(5)
-                client_socket.connect((self.ip, 5004))
+                client_socket.connect((self.ip, 5002))
                 print(f"[Keyboard] Connected to {self.ip}")
 
                 while True:
@@ -169,3 +171,40 @@ class ViewMember(ctk.CTkToplevel):
         except (ConnectionRefusedError, socket.timeout) as e:
             print(f"[Keyboard] Cannot connect to {self.ip}: {e}")
             self.kbstatus_lbl.configure(text="OFFLINE", fg_color="black")
+
+#---------------- Mouse Activity Monitoring ---------------------------
+    def receive_mouse_status(self):
+        """Receives real-time mouse status updates from the client and updates the UI."""
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
+                client_socket.settimeout(5)
+                client_socket.connect((self.ip, 5003))
+                print(f"[Mouse] Connected to {self.ip}")
+
+                while True:
+                    try:
+                        data = client_socket.recv(1024).decode("utf-8").strip().lower()
+                        if not data:
+                            print("[Mouse] Connection closed by client.")
+                            break
+
+                        # Decide label color based on status
+                        if data == "erratic":
+                            color = "red"
+                        elif data == "normal":
+                            color = "green"
+                        elif data == "idle":
+                            color = "gray"
+                        else:
+                            color = "orange"  # Unknown status
+
+                        self.mousestatus_lbl.configure(text=f"{data.upper()}", fg_color=color)
+
+                    except Exception as e:
+                        print(f"[Mouse] Error receiving data: {e}")
+                        self.mousestatus_lbl.configure(text="ERROR", fg_color="red")
+                        break
+
+        except (ConnectionRefusedError, socket.timeout) as e:
+            print(f"[Mouse] Cannot connect to {self.ip}: {e}")
+            self.mousestatus_lbl.configure(text="OFFLINE", fg_color="black")
