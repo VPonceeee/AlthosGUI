@@ -74,7 +74,8 @@ def show_screen_sharing():
     threads = []
 
     def update_textbox(message):
-        statusScreen_txtb.after(0, lambda: statusScreen_txtb.insert("end", message + "\n"))
+        if statusScreen_txtb.winfo_exists():  # Check if the widget still exists
+            statusScreen_txtb.after(0, lambda: statusScreen_txtb.insert("end", message + "\n"))
 
     def start_sharing():
         global is_sharing, threads
