@@ -6,6 +6,8 @@ import socket
 import threading
 import io
 import tkinter as tk
+import cv2
+import numpy as np
 
 class ViewMember(ctk.CTkToplevel):
     def __init__(self, parent, device, device_ip):
@@ -82,6 +84,7 @@ class ViewMember(ctk.CTkToplevel):
         threading.Thread(target=self.receive_screen, daemon=True).start()
         threading.Thread(target=self.receive_keyboard_status, daemon=True).start()
         threading.Thread(target=self.receive_mouse_status, daemon=True).start()
+        threading.Thread(target=self.receive_camera, daemon=True).start()
 
 
     def receive_screen(self):
@@ -208,3 +211,60 @@ class ViewMember(ctk.CTkToplevel):
         except (ConnectionRefusedError, socket.timeout) as e:
             print(f"[Mouse] Cannot connect to {self.ip}: {e}")
             self.mousestatus_lbl.configure(text="OFFLINE", fg_color="black")
+
+#---------------- Camera Activity Monitoring ---------------------------
+    def receive_camera(self):
+        """Receives and displays the camera feed from the client."""
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
+                client_socket.settimeout(5)
+                try:
+                    client_socket.connect((self.ip, 5004))  # Connect to the client's camera feed port
+                    print(f"[Camera] Connected to {self.ip}")
+
+                    while True:
+                        try:
+                            # Receive the size of the incoming frame (4 bytes)
+                            length = client_socket.recv(4)
+                            if len(length) < 4:
+                                print("[Camera] Connection closed by client.")
+                                break
+                            data_length = int.from_bytes(length, 'big')
+
+                            # Receive the frame data
+                            data = b""
+                            while len(data) < data_length:
+                                packet = client_socket.recv(data_length - len(data))
+                                if not packet:
+                                    print("[Camera] Connection lost.")
+                                    break
+                                data += packet
+
+                            if data:
+                                # Decode the frame and display it
+                                np_data = np.frombuffer(data, np.uint8)
+                                frame = cv2.imdecode(np_data, cv2.IMREAD_COLOR)
+
+                                if frame is not None:
+                                    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                                    img = Image.fromarray(frame)
+                                    img = img.resize((700, 400), Image.LANCZOS)
+                                    photo = ImageTk.PhotoImage(img)
+
+                                    self.camera_label.configure(image=photo)
+                                    self.camera_label.image = photo
+                        except Exception as e:
+                            print(f"[Camera] Error receiving data: {e}")
+                            break
+
+                except socket.timeout:
+                    print(f"[Camera] Connection to {self.ip} timed out. Device may be offline.")
+                    self.set_offline_state()
+
+                except ConnectionRefusedError:
+                    print(f"[Camera] Connection to {self.ip} was refused. Device is offline.")
+                    self.set_offline_state()
+
+        except Exception as e:
+            print(f"[Camera] Error connecting to server: {e}")
+            self.set_offline_state()
