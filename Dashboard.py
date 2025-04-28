@@ -11,9 +11,8 @@ try:
     client = MongoClient(connection_string)
     db = client["ADB"]
     groups_collection = db["Groups"]
-    print("Connected to Groups MongoDB Atlas!")
 except Exception as e:
-    print("Error connecting to MongoDB:", e)
+    print("Error connecting to Groups MongoDB:", e)
 
 
 class Dashboard(ctk.CTkFrame):
@@ -27,12 +26,11 @@ class Dashboard(ctk.CTkFrame):
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
 
-        self.scroll_frame = ctk.CTkScrollableFrame(self)
-        self.scroll_frame.grid(row=0, column=0, padx=20, pady=20, sticky="nsew")
+        self.scroll_frame = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        self.scroll_frame.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
 
         self.panel_width = 270
         self.panel_padding = 10
-        self.fg_color="green"
 
         self.groups = []
 
@@ -51,7 +49,6 @@ class Dashboard(ctk.CTkFrame):
             self.groups = list(groups_collection.find(query))
 
             if self.groups:
-                print(f"Groups found for CreatedBy {self.accid}:")
                 self.display_groups()
             else:
                 print(f"No groups found for CreatedBy {self.accid}")
@@ -66,7 +63,7 @@ class Dashboard(ctk.CTkFrame):
         if max_columns < 1:
             return
 
-        plus_panel = ctk.CTkFrame(self.scroll_frame)
+        plus_panel = ctk.CTkFrame(self.scroll_frame, fg_color="transparent")
         plus_panel.grid(row=0, column=0, padx=self.panel_padding, pady=10, sticky="n")
 
         button_width = max(200, (self.winfo_width() - 40) // max_columns - (self.panel_padding * 2))
@@ -83,7 +80,7 @@ class Dashboard(ctk.CTkFrame):
         for i, group in enumerate(self.groups):
             group_name = group.get("GroupName", "Unnamed Group")
 
-            sub_panel = ctk.CTkFrame(self.scroll_frame)
+            sub_panel = ctk.CTkFrame(self.scroll_frame, fg_color="transparent")
             sub_panel.grid(row=(i + 1) // max_columns, column=(i + 1) % max_columns,
                            padx=self.panel_padding, pady=10, sticky="n")
 
@@ -160,7 +157,6 @@ class Dashboard(ctk.CTkFrame):
                         {"_id": group_id},
                         {"$set": {"GroupName": new_name}}
                     )
-                    print(f"Group '{current_name}' updated to '{new_name}'")
                     update_window.destroy()
                     self.fetch_groups()
                 except Exception as e:
@@ -204,7 +200,6 @@ class Dashboard(ctk.CTkFrame):
         def confirm_delete():
             try:
                 groups_collection.delete_one({"_id": group_id})
-                print(f"Deleted group '{group_name}'")
                 confirm_window.destroy()
                 self.fetch_groups()
             except Exception as e:
@@ -214,10 +209,10 @@ class Dashboard(ctk.CTkFrame):
         btn_frame = ctk.CTkFrame(confirm_window, fg_color="transparent")
         btn_frame.pack(pady=10)
 
-        yes_btn = ctk.CTkButton(btn_frame, text="Yes", fg_color="red", command=confirm_delete)
+        yes_btn = ctk.CTkButton(btn_frame, text="Yes", fg_color="darkred", hover_color="red", command=confirm_delete)
         yes_btn.pack(side="left", padx=10)
 
-        no_btn = ctk.CTkButton(btn_frame, text="No", command=confirm_window.destroy)
+        no_btn = ctk.CTkButton(btn_frame, text="No",  command=confirm_window.destroy)
         no_btn.pack(side="left", padx=10)
 
     def on_resize(self, event=None):

@@ -8,33 +8,21 @@ import io
 import tkinter as tk
 import time
 
-#-------------------- MongoDB Connection -----------------------
-try:
-    connection_string = "mongodb+srv://altplusf42024:RuVAh3aZgUbC0YLE@altf4cluster.9p2yp.mongodb.net/?retryWrites=true&w=majority&appName=ALTF4Cluster"
-    client = MongoClient(connection_string)
-    db = client["ADB"]
-    devices_collection = db["ReportLogs"]
-except Exception as e:
-    print("Error connecting to ReportLogs MongoDB:", e)
-
-#-------------------- ViewMember Class -----------------------
 class ViewMember(ctk.CTkToplevel):
-    def __init__(self, parent, device, device_ip, group_id, group_name):
+    def __init__(self, parent, device, device_ip):
         super().__init__(parent)
-        
-        self.device_id = device.get("_id", "Unknown ID")
-        self.device_name = device.get("DeviceName", "Unnamed Device")
+
+        device_name = device.get("DeviceName", "Unnamed Device")
         self.ip = device.get("DeviceIP", "Unknown Device IP")
-        self.group_id = group_id  
-        self.group_name = group_name  
         self.is_running = True
 
-        self.title(f"{self.device_name}-{self.ip}")
+        self.title("View Device")
         self.geometry("1450x650")
         self.resizable(False, False)
         self.attributes("-topmost", True)
         self.attributes("-toolwindow", True)
         self.grab_set()
+        self.title(f"{self.ip}")
 
         screen_width = self.winfo_screenwidth()
         screen_height = self.winfo_screenheight()
@@ -43,38 +31,45 @@ class ViewMember(ctk.CTkToplevel):
         self.geometry(f"1450x650+{x_position}+{y_position}")
 
         self.fullscreen = False  # Track fullscreen state
-
-        # Main container
+        
+        # **Main Container Frame**
         container_frame = ctk.CTkFrame(self, fg_color="transparent")
         container_frame.pack(side="left", anchor="nw", padx=20, pady=20)
 
-        # Keyboard & Mouse labels
-        kml_frame = ctk.CTkFrame(container_frame, fg_color="transparent")
+        #keyboard & mouse label (KML) frame
+        kml_frame = ctk.CTkFrame(container_frame,fg_color="transparent")
         kml_frame.pack(side="top", pady=10)
 
-        km_frame = ctk.CTkFrame(container_frame, fg_color="transparent")
+        #keyboard & mouse (KM) frame
+        km_frame = ctk.CTkFrame(container_frame,fg_color="transparent")
         km_frame.pack(side="top", pady=2)
 
+        # keyboard label
         kb_lbl = ctk.CTkLabel(kml_frame, text="Keyboard Status:", font=("Arial", 14, "bold"), width=700, height=30, fg_color="transparent", corner_radius=10)
-        kb_lbl.pack(side="left", expand=True, pady=2)
+        kb_lbl.pack(side="left", expand=True,pady=2)
 
+        # keyboard label
         mouse_lbl = ctk.CTkLabel(kml_frame, text="Mouse Status:", font=("Arial", 14, "bold"), width=700, height=30, fg_color="transparent", corner_radius=10)
-        mouse_lbl.pack(side="left", expand=True, pady=2)
+        mouse_lbl.pack(side="left", expand=True,pady=2)
 
+        # keyboard Status
         self.kbstatus_lbl = ctk.CTkLabel(km_frame, text=" ", font=("Arial", 14, "bold"), width=680, height=30, fg_color="green", corner_radius=10)
         self.kbstatus_lbl.pack(side="left", padx=10)
 
+        # Mouse Status
         self.mousestatus_lbl = ctk.CTkLabel(km_frame, text=" ", font=("Arial", 14, "bold"), width=680, height=30, fg_color="green", corner_radius=10)
         self.mousestatus_lbl.pack(side="left", padx=10)
 
-        # Screen and Camera frames
-        sc_frame = ctk.CTkFrame(container_frame, fg_color="transparent")
+        #Screen & Camera (SC) frame
+        sc_frame = ctk.CTkFrame(container_frame,fg_color="transparent")
         sc_frame.pack(side="top", pady=6)
 
+        # **Screen Frame (Fixed Size)**
         self.screenframe = ctk.CTkFrame(sc_frame, width=700, height=400, corner_radius=10)
-        self.screenframe.pack_propagate(False)
+        self.screenframe.pack_propagate(False)  # Prevent resizing
         self.screenframe.pack(side="left", pady=10)
 
+        # **Label for Displaying Screen (Fixed Size)**
         self.screen_label = ctk.CTkLabel(self.screenframe, text=" ", font=("Arial", 14, "bold"), width=700, height=400, fg_color="gray")
         self.screen_label.pack(fill="both", expand=True)
 
@@ -85,36 +80,17 @@ class ViewMember(ctk.CTkToplevel):
         self.camera_label = ctk.CTkLabel(self.cameraframe, text=" ", font=("Arial", 14, "bold"), width=700, height=400, fg_color="gray")
         self.camera_label.pack(fill="both", expand=True)
 
-        # Threads for receiving data
+        # Start receiving screen data in a separate thread
         threading.Thread(target=self.receive_screen, daemon=True).start()
         threading.Thread(target=self.receive_keyboard_status, daemon=True).start()
         threading.Thread(target=self.receive_mouse_status, daemon=True).start()
 
+        # Track the previous status and the time it was last changed
         self.prev_kb_status = None
         self.prev_mouse_status = None
         self.prev_kb_time = time.time()
         self.prev_mouse_time = time.time()
-    
-    def save_to_database(self, device_name, status, components, duration):
-        
-        group_id = ObjectId(self.group_id) if not isinstance(self.group_id, ObjectId) else self.group_id
-        device_id = ObjectId(self.device_id) if not isinstance(self.device_id, ObjectId) else self.device_id
 
-        data = {
-            "GroupID": group_id,
-            "DeviceID": device_id,
-            "Timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "DeviceName": device_name,
-            "DeviceIP": self.ip,
-            "Components": components,
-            "Status": status.capitalize(),
-            "DurationSeconds": duration,
-        }
-        try:
-            devices_collection.insert_one(data)
-            print("Data saved to MongoDB!")
-        except Exception as e:
-            print(f"Error saving data to MongoDB: {e}")
 
     def receive_screen(self):
         try:
@@ -131,7 +107,7 @@ class ViewMember(ctk.CTkToplevel):
                                 break
                             data_length = int.from_bytes(length, 'big')
 
-                            data = b""
+                            data = b"" 
                             while len(data) < data_length:
                                 packet = client_socket.recv(data_length - len(data))
                                 if not packet:
@@ -162,10 +138,11 @@ class ViewMember(ctk.CTkToplevel):
             self.set_offline_state()
 
     def set_offline_state(self):
+        # Show device is offline visually
         self.screen_label.configure(text="Screen Offline", image=None, fg_color="black")
         self.camera_label.configure(text="Camera Offline", image=None, fg_color="black")
 
-    # ---------------- Keyboard Activity Monitoring -------------------
+#--------------Keyboard Activity Monitoring------------------------------------
     def receive_keyboard_status(self):
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
@@ -180,13 +157,14 @@ class ViewMember(ctk.CTkToplevel):
                             break
 
                         if not self.kbstatus_lbl.winfo_exists():
+                            #print("[Keyboard] Label destroyed, stopping thread.")
                             break
 
                         if data != self.prev_kb_status:
                             current_time = time.time()
                             if self.prev_kb_status is not None:
                                 duration = round(current_time - self.prev_kb_time)
-                                self.save_to_database(self.device_name, self.prev_kb_status, "keyboard", duration)
+                                print(f"Keyboard Status: {self.prev_kb_status.capitalize()} in {duration} sec")
                             self.prev_kb_status = data
                             self.prev_kb_time = current_time
 
@@ -212,7 +190,9 @@ class ViewMember(ctk.CTkToplevel):
             if self.kbstatus_lbl.winfo_exists():
                 self.kbstatus_lbl.configure(text="OFFLINE", fg_color="black")
 
-    # ---------------- Mouse Activity Monitoring -------------------
+
+
+#---------------- Mouse Activity Monitoring ---------------------------
     def receive_mouse_status(self):
         """Receives real-time mouse status updates from the client and updates the UI."""
         try:
@@ -228,15 +208,17 @@ class ViewMember(ctk.CTkToplevel):
                             print("[Mouse] Connection closed by client.")
                             break
 
+                        # Track status change and print time when status changes
                         if data != self.prev_mouse_status:
                             current_time = time.time()
                             if self.prev_mouse_status is not None:
                                 duration = round(current_time - self.prev_mouse_time)
-                                self.save_to_database(self.device_name, self.prev_mouse_status, "mouse", duration)
+                                print(f"Mouse Status: {self.prev_mouse_status.capitalize()} in {duration} sec")
 
                             self.prev_mouse_status = data
                             self.prev_mouse_time = current_time
 
+                        # Decide label color based on status
                         if data == "erratic":
                             color = "red"
                         elif data == "normal":
@@ -246,9 +228,11 @@ class ViewMember(ctk.CTkToplevel):
                         else:
                             color = "orange"  # Unknown status
 
+                        # Update label safely
                         try:
                             self.mousestatus_lbl.configure(text=f"{data.upper()}", fg_color=color)
                         except tk.TclError:
+                            #print("[Mouse] Widget no longer exists. Stopping mouse thread.")
                             break  # Exit the loop and end the thread
 
                     except Exception as e:
@@ -256,7 +240,7 @@ class ViewMember(ctk.CTkToplevel):
                         try:
                             self.mousestatus_lbl.configure(text="ERROR", fg_color="red")
                         except tk.TclError:
-                            break
+                            print("[Mouse] Widget no longer exists (on error). Stopping mouse thread.")
                         break
 
         except (ConnectionRefusedError, socket.timeout, OSError) as e:
@@ -264,5 +248,23 @@ class ViewMember(ctk.CTkToplevel):
             try:
                 self.mousestatus_lbl.configure(text="OFFLINE", fg_color="black")
             except tk.TclError:
-                print("[Mouse] Widget no longer exists.")
+                print("[Mouse] Widget no longer exists (on connection fail).")
 
+    # --------------- Save report log to MongoDB ---------------
+    def save_log(self, device_name, activity_type, status, duration):
+        try:
+            log = {
+                "GroupID": self.group_id, 
+                "GroupName": self.group_name,
+                "Timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "DeviceName": device_name,
+                "DeviceIP": self.ip,         
+                "Components": #keyboard or mouse,
+                "Status": status.capitalize(),
+                "DurationSeconds": duration,
+                
+            }
+            devices_collection.insert_one(log)
+            print("[Database] Report log saved:", log)
+        except Exception as e:
+            print("[Database] Failed to save report log:", e)

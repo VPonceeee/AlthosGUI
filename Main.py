@@ -2,6 +2,7 @@ import customtkinter as ctk
 from Dashboard import Dashboard
 from ViewGroup import ViewGroup
 import sys
+import subprocess
 
 # Retrieve user info from command-line arguments
 AccID = sys.argv[1] if len(sys.argv) > 1 else "Unknown"
@@ -30,16 +31,47 @@ navbar = ctk.CTkFrame(app, height=50)
 navbar.pack(fill="x", side="top")
 
 # Equal aligned text using grid
-navbar.columnconfigure((0, 1, 2), weight=1)
+navbar.columnconfigure(0, weight=0)  # Hamburger - fixed
+navbar.columnconfigure(1, weight=0)  # App Name - fixed
+
+dropdown_menu = ctk.CTkFrame(app, width=300, height=app.winfo_height() - 50)
+dropdown_menu.pack_propagate(False) 
+dropdown_menu.place_forget()
+
+#dropdown_menu items
+menu_label = ctk.CTkLabel(dropdown_menu, text="Menu", font=("Arial", 18, "bold"))
+menu_label.pack(pady=10)
+
+RL_btn = ctk.CTkButton(dropdown_menu, text="Report Logs", width=280,command=lambda: open_report_logs())
+RL_btn.pack(pady=1)
+
+Settings_btn = ctk.CTkButton(dropdown_menu, text="Settings", width=280)
+Settings_btn.pack(pady=1)
+
+def logout():
+    app.destroy()
+    subprocess.Popen(["python", "LoginForm.py"])
+
+logout_btn = ctk.CTkButton(dropdown_menu, text="Logout", command=logout, width=280, fg_color="darkred", hover_color="red")
+logout_btn.pack(side="bottom", pady=10)
+
+def toggle_menu():
+    if dropdown_menu.winfo_ismapped():
+        dropdown_menu.place_forget()
+    else:
+        form_height = app.winfo_height()
+        dropdown_menu.configure(height=form_height - 50)  # Dynamically update height
+        dropdown_menu.place(x=0, y=50)  # y=50 to stay under navbar
+        dropdown_menu.lift()
+
+hamburger_btn = ctk.CTkButton(navbar, text="≡", width=40, command=toggle_menu, fg_color="transparent", font=("Arial", 20))
+hamburger_btn.grid(row=0, column=0, padx=(10, 2), pady=10)
 
 left_label = ctk.CTkLabel(navbar, text="ALTHOS", font=("Arial", 20, "bold"))
-left_label.grid(row=0, column=0, sticky="w", padx=20, pady=10)
-
-right_label = ctk.CTkLabel(navbar, text=f"{username}", font=("Arial", 20, "bold"))
-right_label.grid(row=0, column=2, sticky="e", padx=20, pady=10)
+left_label.grid(row=0, column=1, padx=3, pady=10)
 
 # Content Panel (Main Frame for Forms)
-content_panel = ctk.CTkFrame(app)
+content_panel = ctk.CTkFrame(app, fg_color="transparent")
 content_panel.pack(fill="both", expand=True, padx=20, pady=20)
 
 content_panel.rowconfigure(0, weight=1)
@@ -71,13 +103,15 @@ def switch_page(page_name, data=None):
         pages[page_name].set_group_data(data["GroupID"], data["GroupName"])  # Pass both ID and Name
 
 
-
 # Add pages inside content_panel
 add_page(Dashboard, "Dashboard")
 add_page(ViewGroup, "ViewGroup")
 
 # Show Dashboard on startup
 switch_page("Dashboard")
+
+def open_report_logs():
+    subprocess.Popen(["python", "reportlogs.py", AccID])
 
 # Run the application
 app.mainloop()

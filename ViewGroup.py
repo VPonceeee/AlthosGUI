@@ -3,7 +3,7 @@ from pymongo import MongoClient
 from bson import ObjectId
 import AddMember
 import ViewMember
-
+import rl
 from PIL import Image, ImageTk
 import socket
 import threading
@@ -16,9 +16,8 @@ try:
     client = MongoClient(connection_string)
     db = client["ADB"]
     devices_collection = db["Members"]
-    print("Connected to Members MongoDB Atlas!")
 except Exception as e:
-    print("Error connecting to MongoDB:", e)
+    print("Error connecting to Members MongoDB:", e)
 
 class ViewGroup(ctk.CTkFrame):
     def __init__(self, parent, switch_page, group_id="Unknown", group_name="Group Pages"):
@@ -35,6 +34,7 @@ class ViewGroup(ctk.CTkFrame):
         # Top Frame
         self.top_frame = ctk.CTkFrame(self, height=50)
         self.top_frame.pack(fill="x", side="top", padx=10, pady=2)
+        
 
         # Back Button
         self.back_button = ctk.CTkButton(
@@ -42,6 +42,12 @@ class ViewGroup(ctk.CTkFrame):
             command=lambda: self.switch_page("Dashboard")
         )
         self.back_button.pack(side="left", padx=10, pady=10)
+
+        # Report logs Button
+        self.rl_btn = ctk.CTkButton(
+            self.top_frame, text="Report Logs", width=80,command=self.open_reportlogs
+        )
+        self.rl_btn.pack(side="right", padx=(0, 10), pady=10)
 
         # Refresh Button
         self.refresh_button = ctk.CTkButton(
@@ -55,8 +61,9 @@ class ViewGroup(ctk.CTkFrame):
         self.label.pack(side="left", padx=10, pady=10)
 
         # Content Frame
-        self.content_frame = ctk.CTkFrame(self)
+        self.content_frame = ctk.CTkScrollableFrame(self)
         self.content_frame.pack(fill="both", expand=True, padx=10, pady=2)
+        #self.content_frame.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
 
         self.bind("<Configure>", self.on_resize)
         self.display_devices()
@@ -84,7 +91,8 @@ class ViewGroup(ctk.CTkFrame):
         plus_lbl.pack(pady=(0, 10))
 
         for i, device in enumerate(self.devices):
-            device_ip = device.get("DeviceIP", "Unnamed Device IP")
+            device_id = device.get("_id", "Unknown ID")
+            device_ip = device.get("DeviceIP", "Unknown Device IP")
             device_name = device.get("DeviceName", "Unnamed Device")
 
             sub_panel = ctk.CTkFrame(self.content_frame, fg_color="transparent")
@@ -180,7 +188,6 @@ class ViewGroup(ctk.CTkFrame):
                         {"_id": device_id},
                         {"$set": {"DeviceIP": new_device_ip, "DeviceName": new_device_name}}
                     )
-                    print(f"Device updated: IP '{current_device_ip}' to '{new_device_ip}', Name '{current_device_name}' to '{new_device_name}'")
                     update_window.destroy()
                     self.refresh_devices()  # Refresh the devices list after update
                 except Exception as e:
@@ -260,7 +267,6 @@ class ViewGroup(ctk.CTkFrame):
         try:
             query_filter = {"GroupID": ObjectId(self.group_id)} if ObjectId.is_valid(self.group_id) else {"GroupID": self.group_id}
             self.devices = list(devices_collection.find(query_filter))
-            print("Fetched Devices:", self.devices)
             if not self.devices:
                 print("No devices found for GroupID:", self.group_id)
         except Exception as e:
@@ -276,11 +282,10 @@ class ViewGroup(ctk.CTkFrame):
                 try:
                     client_socket.connect((device_ip, 5001))
 
-                    while True:
+                    while screen_label.winfo_exists():  # Check if the widget still exists
                         try:
                             length = client_socket.recv(4)
                             if len(length) < 4:
-                                print(f"Connection closed by server ({device_ip}).")
                                 break
                             data_length = int.from_bytes(length, 'big')
 
@@ -299,30 +304,31 @@ class ViewGroup(ctk.CTkFrame):
                                 image = image.resize((frame_width, frame_height), Image.LANCZOS)
                                 photo = ImageTk.PhotoImage(image)
 
-                                screen_label.configure(image=photo, text="")
-                                screen_label.image = photo
+                                if screen_label.winfo_exists():  # Check again before updating
+                                    screen_label.configure(image=photo, text="")
+                                    screen_label.image = photo
 
                         except Exception as e:
                             print(f"Error receiving screen from {device_ip}: {e}")
                             break
                 except socket.timeout:
-                    print(f"Connection to {device_ip} timed out.")
+                    #print(f"Connection to {device_ip} timed out.")
                     self.set_offline_state(screen_label)
                 except ConnectionRefusedError:
-                    print(f"Connection to {device_ip} was refused.")
+                    #print(f"Connection to {device_ip} was refused.")
                     self.set_offline_state(screen_label)
         except Exception as e:
-            print(f"Error connecting to {device_ip}: {e}")
+            #print(f"Error connecting to {device_ip}: {e}")
             self.set_offline_state(screen_label)
 
     def set_offline_state(self, screen_label):
-        screen_label.configure(text="OFFLINE", image=None, fg_color="gray", font=("Arial", 16, "bold"))
+        if screen_label.winfo_exists():  # Check if the widget still exists
+            screen_label.configure(text="OFFLINE", image=None, fg_color="gray", font=("Arial", 16, "bold"))
 
     def refresh_devices(self):
         try:
             query_filter = {"GroupID": ObjectId(self.group_id)} if ObjectId.is_valid(self.group_id) else {"GroupID": self.group_id}
             self.devices = list(devices_collection.find(query_filter))
-            print("Devices refreshed:", self.devices)
         except Exception as e:
             print("Error refreshing devices:", e)
         self.display_devices()
@@ -333,6 +339,11 @@ class ViewGroup(ctk.CTkFrame):
 
     def open_member(self, device):
         device_ip = device.get("DeviceIP", "Unknown IP")
-        print(f"Opening device with IP: {device_ip}")
-        self.openmem = ViewMember.ViewMember(self, device, device_ip)
+        device_name = device.get("DeviceName", "Unnamed Device")
+        print(f"Opening device with IP: {device_name} - {device_ip}")
+        self.openmem = ViewMember.ViewMember(self, device, device_ip,self.group_id, self.group_name)
+        self.openmem.focus()
+
+    def open_reportlogs(self):
+        self.openmem = rl.rl(self,self.group_name,self.group_id)
         self.openmem.focus()
