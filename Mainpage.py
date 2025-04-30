@@ -9,6 +9,9 @@ import io
 import pyautogui
 import pystray
 from pynput import keyboard, mouse
+import tkinter as tk
+import cv2
+from fer import FER
 
 #======================Function Section==============================
 
@@ -178,6 +181,17 @@ def show_screen_sharing():
 
 
 def show_camera_sharing():
+
+    EMOTION_COLORS = {
+    "angry": "red",
+    "disgust": "green",
+    "fear": "violet",
+    "happy": "yellow",
+    "sad": "blue",
+    "surprise": "orange",
+    "neutral": "gray",
+    }
+
     for widget in right_panel.winfo_children():
         widget.destroy()
     
@@ -187,21 +201,214 @@ def show_camera_sharing():
     camerabtn_frame = ctk.CTkFrame(camera_sharing_frame, fg_color="transparent")
     camerabtn_frame.pack(fill="x", padx=5, pady=5)
 
-    startcs_btn = ctk.CTkButton(camerabtn_frame, text="Start", width=100, height=30, fg_color="darkgreen")
-    startcs_btn.pack(side="left", padx=5)
-    startcs_btn.bind("<Enter>", lambda e: startcs_btn.configure(fg_color="green"))
-    startcs_btn.bind("<Leave>", lambda e: startcs_btn.configure(fg_color="darkgreen"))
-
-    stopcs_btn = ctk.CTkButton(camerabtn_frame, text="Stop", width=100, height=30, fg_color="darkred")
-    stopcs_btn.pack(side="left", padx=5)
-    stopcs_btn.bind("<Enter>", lambda e: stopcs_btn.configure(fg_color="red"))
-    stopcs_btn.bind("<Leave>", lambda e: stopcs_btn.configure(fg_color="darkred"))
-
     camerastatus_lbl = ctk.CTkLabel(camerabtn_frame, text="Status: Active", font=("Arial", 16, "bold"))
     camerastatus_lbl.pack(side="right", padx=10, pady=5)
 
     statuscs_txtb = ctk.CTkTextbox(camera_sharing_frame, width=500, height=400)
     statuscs_txtb.pack(fill="both", expand=True, padx=10, pady=5)
+
+    global is_camera_sharing, camera_threads
+    is_camera_sharing = False
+    camera_threads = []
+    detector = FER(mtcnn=False)  # Initialize FER detector
+    cap = cv2.VideoCapture(0)  # Open the default camera
+    
+
+    def update_textbox(message):
+        if statuscs_txtb.winfo_exists():  # Check if the widget still exists
+            statuscs_txtb.after(0, lambda: statuscs_txtb.insert("end", message + "\n"))
+
+    def start_camera_sharing():
+        global is_camera_sharing, camera_threads
+        if not is_camera_sharing:
+            is_camera_sharing = True
+            camera_threads = []
+
+            for port in [5004]:
+                thread = threading.Thread(target=run_camera_server, args=(port,))
+                thread.daemon = True
+                thread.start()
+                camera_threads.append(thread)
+
+                emotion_tread = threading.Thread(target=run_emotion_server)
+                emotion_tread.daemon = True
+                emotion_tread.start()
+                camera_threads.append(emotion_tread)
+            
+            cameratoggle_btn()
+            camerastatus_lbl.configure(text="Status: Online", text_color="green")
+            update_textbox("Camera sharing started on ports 5004...")
+    
+    def stop_camera_sharing():
+        global is_camera_sharing
+        is_camera_sharing = False
+        update_textbox("Stopping camera sharing...")
+
+        if cap.isOpened():
+            cap.release()
+
+        # Force close socket connections
+        try:
+            temp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            temp_socket.connect(("127.0.0.1", 5004))
+            temp_socket.close()
+        except:
+            pass
+
+        for thread in camera_threads:
+            thread.join(timeout=2)
+        
+        update_textbox("Camera sharing has been stopped.")
+        cameratoggle_btn()
+        camerastatus_lbl.configure(text="Status: Offline", text_color="red")
+
+    def run_camera_server(port):
+        try:
+            server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            server_socket.bind(("0.0.0.0", port))
+            server_socket.listen(5)
+            server_socket.settimeout(1)  # Prevents indefinite blocking
+
+            update_textbox(f"Camera server listening on port {port}...")
+            while is_camera_sharing:
+                try:
+                    conn, addr = server_socket.accept()
+                    if not is_camera_sharing:
+                        break
+                    share_camera(conn)
+                except socket.timeout:
+                    continue
+                except socket.error as e:
+                    update_textbox(f"Socket error on port {port}: {e}")
+                    break
+            server_socket.close()
+        except Exception as e:
+            update_textbox(f"Error in camera server on port {port}: {e}")
+        
+    def share_camera(conn):
+        last_time = time.time()
+        try:
+            while is_camera_sharing and conn:
+                ret, frame = cap.read()
+                if not ret:
+                    update_textbox("Can't receive frame (stream end?).")
+                frame = cv2.flip(frame, 1)  # Flip the frame horizontally
+
+                # Process emotions every 3 seconds
+                current_time = time.time()
+                if current_time - last_time >= 3:
+                    emotions = detector.detect_emotions(frame)
+                    if emotions:
+                        # Get the dominant emotion
+                        top_emotion, score = detector.top_emotion(frame)
+
+                        if top_emotion:
+                            # Map emotion to color
+                            color = EMOTION_COLORS.get(top_emotion, "gray")
+                            percentage_score = score * 100  # Convert score to percentage
+                            update_textbox(f"Dominant Emotion: {top_emotion}, Color: {color}, Score: {percentage_score:.2f}%")
+
+                    last_time = current_time
+
+                # Resize the frame to reduce data size
+                resized_frame = cv2.resize(frame, (640, 480))  # Resize to 640x480 resolution
+
+                # Encode the frame as JPEG
+                encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 50]  # Set JPEG quality to 50
+                _, buffer = cv2.imencode(".jpg", resized_frame, encode_param)
+                frame_data = buffer.tobytes()
+
+                # Send the size of the frame followed by the frame data
+                conn.sendall(len(frame_data).to_bytes(4, "big") + frame_data)
+                
+                # Add a delay to control the frame rate (e.g., 10 FPS)
+                time.sleep(0.1)
+        except (socket.error, BrokenPipeError) as e:
+            update_textbox(f"Error during camera sharing: {e}")
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except Exception as e:
+                    update_textbox(f"Error closing connection: {e}")
+    
+    def run_emotion_server():
+        try:
+            emotion_server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            emotion_server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            emotion_server_socket.bind(("0.0.0.0", 5005))
+            emotion_server_socket.listen(1)
+            update_textbox("Emotion server is listening on port 5005...")
+
+            while is_camera_sharing:
+                try:
+                    econn, addr = emotion_server_socket.accept()
+                    update_textbox(f"Emotion server connected to {addr}")
+
+                    while is_camera_sharing:
+                        try:
+                            ret, frame = cap.read()
+                            if not ret:
+                                update_textbox("Can't receive frame (stream end?).")
+                                break
+
+                            frame = cv2.flip(frame, 1)  # Flip the frame horizontally
+                            emotions = detector.detect_emotions(frame)
+                            if emotions:
+                                top_emotion, score = detector.top_emotion(frame)
+                                if top_emotion:
+                                    # Map emotion to color
+                                    color = EMOTION_COLORS.get(top_emotion, "gray")
+                                    emotion_data = f"{top_emotion}:{color}".encode()
+                                    econn.sendall(len(emotion_data).to_bytes(4, "big") + emotion_data)
+                                    percentage_score = score * 100
+                                    update_textbox(f"Dominant Emotion: {top_emotion}, Color: {color}, Score: {percentage_score:.2f}%")
+                            time.sleep(3)  # Control the frame rate
+                        except (socket.error, BrokenPipeError) as e:
+                            update_textbox(f"Error sending emotion data: {e}")
+                            break
+                except Exception as e:
+                    update_textbox(f"Error in emotion server: {e}")
+                finally:
+                    if econn:
+                        econn.close()
+        finally:
+            emotion_server_socket.close()
+    
+    # def share_emotion(econn, emotion_data):
+    #     try:
+    #         while not is_camera_sharing and econn:
+    #             econn.sendall(len(emotion_data).to_bytes(4, "big") + emotion_data)
+    #             time.sleep(1)  # Control the frame rate
+    #     except socket.timeout:
+    #         update_textbox("Emotion server timed out.")
+    #     except (socket.error, BrokenPipeError) as e:
+    #         update_textbox(f"Error during emotion sharing: {e}")
+    #     finally:
+    #         if econn:
+    #             econn.close()
+                
+
+    def cameratoggle_btn():
+        if startcs_btn.cget("state") == "disabled":
+            startcs_btn.configure(state="normal")
+            stopcs_btn.configure(state="disabled")
+        else:
+            startcs_btn.configure(state="disabled")
+            stopcs_btn.configure(state="normal")
+    
+    startcs_btn = ctk.CTkButton(camerabtn_frame, text="Start", width=100, height=30, fg_color="darkgreen", command=start_camera_sharing)
+    startcs_btn.pack(side="left", padx=5)
+    startcs_btn.bind("<Enter>", lambda e: startcs_btn.configure(fg_color="green"))
+    startcs_btn.bind("<Leave>", lambda e: startcs_btn.configure(fg_color="darkgreen"))
+
+    stopcs_btn = ctk.CTkButton(camerabtn_frame, text="Stop", width=100, height=30, fg_color="darkred", command=stop_camera_sharing)
+    stopcs_btn.pack(side="left", padx=5)
+    stopcs_btn.bind("<Enter>", lambda e: stopcs_btn.configure(fg_color="red"))
+    stopcs_btn.bind("<Leave>", lambda e: stopcs_btn.configure(fg_color="darkred"))
+    
+
 
 def show_kb_sharing():
     for widget in right_panel.winfo_children():
@@ -400,11 +607,12 @@ def show_kb_sharing():
     start_mouse_sharing()
 
 def appexit():
-
     #ScreenSharing
-    global is_sharing, threads
+    global is_sharing, threads, is_camera_sharing, camera_threads
     is_sharing = False
-    threads = []
+    threads = []    
+    is_camera_sharing = False
+    camera_threads = []
 
     def stop_sharing():
         global is_sharing
@@ -421,6 +629,25 @@ def appexit():
             thread.join(timeout=2)
 
     stop_sharing()
+    app.destroy()
+    
+    def stop_camera_sharing():
+        global is_camera_sharing
+        is_camera_sharing = False
+        cap = cv2.VideoCapture(0)
+
+        if cap:
+            cap.release()
+        try:
+            temp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            temp_socket.connect(("127.0.0.1", 5004))
+            temp_socket.close()
+        except:
+            pass
+
+        for thread in threads:
+            thread.join(timeout=2)
+    stop_camera_sharing()
     app.destroy()
 
 #======================Form Design Section==============================
