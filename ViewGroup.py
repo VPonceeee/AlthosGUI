@@ -3,11 +3,12 @@ from pymongo import MongoClient
 from bson import ObjectId
 import AddMember
 import ViewMember
-
+import time
 from PIL import Image, ImageTk
 import socket
 import threading
 import io
+import os
 import tkinter as tk
 
 # ============================== DATABASE CONNECTION ==============================
@@ -28,9 +29,10 @@ class ViewGroup(ctk.CTkFrame):
         self.group_name = group_name
 
         self.devices = []
-        
         self.panel_padding = 10
         self.panel_width = 200
+        self.running = True
+        self.device_canvas_map = {}  # Add this in the __init__ method
 
         # Top Frame
         self.top_frame = ctk.CTkFrame(self, height=50)
@@ -39,7 +41,7 @@ class ViewGroup(ctk.CTkFrame):
         # Back Button
         self.back_button = ctk.CTkButton(
             self.top_frame, text="← Back", width=80,
-            command=lambda: self.switch_page("Dashboard")
+            command=self.switch_to_dashboard
         )
         self.back_button.pack(side="left", padx=10, pady=10)
 
@@ -62,6 +64,8 @@ class ViewGroup(ctk.CTkFrame):
         self.display_devices()
 
     def display_devices(self):
+        self.device_canvas_map = {}  # Clear the map to avoid stale references
+
         for widget in self.content_frame.winfo_children():
             widget.destroy()
 
@@ -90,17 +94,42 @@ class ViewGroup(ctk.CTkFrame):
             sub_panel = ctk.CTkFrame(self.content_frame, fg_color="transparent")
             sub_panel.grid(row=(i + 1) // max_columns, column=(i + 1) % max_columns, padx=self.panel_padding, pady=10, sticky="n")
 
-            screenframe = ctk.CTkFrame(sub_panel, width=button_width, height=150, corner_radius=10)
-            screenframe.pack_propagate(False)
-            screenframe.pack(side="top", pady=10)
+            canvas = tk.Canvas(
+                sub_panel,
+                width=button_width + 4,
+                height=154,
+                highlightthickness=0,
+                bg="gray"
+            )
+            canvas.pack_propagate(False)
+            canvas.pack(pady=10)
 
-            screen_label = ctk.CTkLabel(screenframe, text=" ", font=("Arial", 14, "bold"), width=button_width, height=150, fg_color="lightgray")
+            # Add the canvas to the map
+            self.device_canvas_map[device_ip] = canvas
+
+            screenframe = ctk.CTkFrame(
+                canvas,
+                width=button_width,
+                height=150,
+                corner_radius=10,
+                fg_color="lightgray"
+            )
+            screenframe.pack_propagate(False)
+            canvas.create_window(2, 2, anchor="nw", window=screenframe)
+
+            screen_label = ctk.CTkLabel(
+                screenframe,
+                text=" ",
+                font=("Arial", 14, "bold"),
+                width=button_width - 4,
+                height=150 - 4,
+                fg_color="lightgray"
+            )
             screen_label.pack(fill="both", expand=True)
             screen_label.bind("<Button-1>", lambda event, dev=device: self.open_member(dev))
 
             threading.Thread(target=self.receive_screen, args=(device, screen_label), daemon=True).start()
 
-            # Bottom Label Frame (device label + overflow menu)
             label_frame = ctk.CTkFrame(sub_panel, fg_color="transparent")
             label_frame.pack(pady=(0, 10), fill="x")
 
@@ -108,11 +137,9 @@ class ViewGroup(ctk.CTkFrame):
             label_frame.grid_columnconfigure(1, weight=0)
 
             device_lbl = ctk.CTkLabel(label_frame, text=device_name, font=("Arial", 14))
-            #device_lbl.pack(side="left", padx=(0, 5))
             device_lbl.grid(row=0, column=0, sticky="nsew")
 
             overflow_btn = ctk.CTkButton(label_frame, text="⋮", width=30, fg_color="transparent", text_color="white", command=lambda dev=device: self.show_overflow_menu(dev))
-            #overflow_btn.pack(side="left")
             overflow_btn.grid(row=0, column=1, sticky="e")
 
         for col in range(max_columns):
@@ -267,6 +294,14 @@ class ViewGroup(ctk.CTkFrame):
             print("Error fetching devices:", e)
 
         self.display_devices()
+        self.start_threads()
+
+    def start_threads(self):
+        """Start threads for receiving emotion data and screen updates."""
+        self.running = True  # Set the running flag to True
+        for device in self.devices:
+            device_ip = device.get("DeviceIP", "Unnamed Device IP")
+            threading.Thread(target=self.receive_emotion_data, args=(device_ip,), daemon=True).start()
 
     def receive_screen(self, device, screen_label):
         device_ip = device.get("DeviceIP", "Unnamed Device IP")
@@ -336,3 +371,54 @@ class ViewGroup(ctk.CTkFrame):
         print(f"Opening device with IP: {device_ip}")
         self.openmem = ViewMember.ViewMember(self, device, device_ip)
         self.openmem.focus()
+
+    def switch_to_dashboard(self):
+        """Stop threads and switch to the dashboard."""
+        self.running = False  # Stop the threads
+        self.switch_page("Dashboard")  # Navigate to the dashboard
+
+    def update_border_color(self, canvas, color):
+        """Update the border color of the canvas."""
+        canvas.configure(bg=color)
+
+    def receive_emotion_data(self, device_ip):
+        """Receive and update emotion data for the device."""
+        while self.running:
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
+                    client_socket.settimeout(15)
+                    try:
+                        client_socket.connect((device_ip, 5005))
+                        print(f"[Emotion] Connected to {device_ip}")
+
+                        while self.running:
+                            try:
+                                header = client_socket.recv(4)
+                                if len(header) < 4:
+                                    break
+                                data_size = int.from_bytes(header, "big")
+
+                                data = b""
+                                while len(data) < data_size:
+                                    packet = client_socket.recv(data_size - len(data))
+                                    if not packet:
+                                        break
+                                    data += packet
+
+                                if data:
+                                    emotion_data = data.decode("utf-8").strip()
+                                    _, color = emotion_data.split(":")
+                                    print(f"[Emotion] Received from {device_ip}: {emotion_data}")
+
+                                    # Update the border color for the corresponding canvas
+                                    if device_ip in self.device_canvas_map:
+                                        canvas = self.device_canvas_map[device_ip]
+                                        self.update_border_color(canvas, color)
+
+                            except socket.timeout:
+                                break
+                    except (socket.timeout, ConnectionRefusedError):
+                        time.sleep(5)
+            except Exception:
+                time.sleep(5)
+
